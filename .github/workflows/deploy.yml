@@ -1,61 +1,27 @@
-name: Deploy to GitHub Pages
-
+name: Request deployment
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   workflow_dispatch:
-
-# Pages 部署需要的权限
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-# 确保只有一个部署任务同时运行
 concurrency:
-  group: "pages"
+  group: notify-${{ github.ref }}
   cancel-in-progress: false
-
 jobs:
-  build:
+  notify:
+    if: github.repository == 'bbbzi711/firefly' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-          
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: 11.22.0
-          run_install: false
-          
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
-      
-      - name: Build site
-        run: pnpm run build
-
-      - name: Create .nojekyll file
-        run: touch dist/.nojekyll
-      
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v5
-        with:
-          path: dist  # Astro默认构建输出目录
-          include-hidden-files: true  # Keep .nojekyll (excluded by default since v4)
-
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v5
+      - name: Notify private deployment workflow
+        env:
+          GH_TOKEN: ${{ secrets.BLOG_DEPLOY_TOKEN }}
+          DEPLOY_REPOSITORY: ${{ secrets.BLOG_DEPLOY_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          test -n "$DEPLOY_REPOSITORY"
+          jq -n --arg sha "$GITHUB_SHA" '{ref:"master",inputs:{source_sha:$sha}}' > "$RUNNER_TEMP/deploy-request.json"
+          gh api --silent --method POST "repos/$DEPLOY_REPOSITORY/actions/workflows/deploy.yml/dispatches" --input "$RUNNER_TEMP/deploy-request.json"
+          echo "Deployment requested. Build and deployment logs are kept in the private repository."
